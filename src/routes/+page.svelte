@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	let circle: HTMLDivElement;
 	let section: HTMLElement;
+	let target: HTMLDivElement;
 
 	interface Follower {
 		element: HTMLDivElement | null;
@@ -19,6 +20,8 @@
 	let isFirstTime = true;
 	let time = 0;
 
+	let isDragging = false;
+
 	const waveParams = {
 		amplitude: 50,
 		wavelength: 200,
@@ -29,33 +32,82 @@
 
 	let movementSpeed = 1; // Add speed multiplier
 	let transitionSpeed = 0.1; // Controls how fast the circle moves to cursor
-	let currentX = 250; // Starting position (matching the initial transform)
-	let currentY = 250;
+	let currentX = 0; // Will be set in onMount
+	let currentY = 0;
+
+	// Add these new reactive variables
+	$: viewportWidth = section?.clientWidth ?? 0;
+	$: viewportHeight = section?.clientHeight ?? 0;
+	$: responsiveWanderRadius = Math.min(viewportWidth, viewportHeight) * 0.4; // 30% of the smallest dimension
+
+	let score = 0; // Add score counter
+	const hitThreshold = 20; // Distance threshold for hitting target
+
+	// Add function to generate random position within viewport
+	const getRandomPosition = () => {
+		const padding = 40; // Padding from edges
+		const section = document.querySelector('section[role="presentation"]') as HTMLElement;
+		return {
+			x: padding + Math.random() * (section.clientWidth - 2 * padding),
+			y: padding + Math.random() * (section.clientHeight - 2 * padding)
+		};
+	};
+
+	let targetX = 0;
+	let targetY = 0;
 
 	const handleOnMouseMove = (e: MouseEvent) => {
-		if (!isMouseControl) return;
+		if (!isMouseControl || !isDragging) return;
 		const rect = section.getBoundingClientRect();
 		mouseX = e.clientX - rect.left - circle.clientWidth / 2;
 		mouseY = e.clientY - rect.top - circle.clientHeight / 2;
 	};
 
-	const toggleControl = (e: MouseEvent) => {
+	const handleTouchMove = (e: TouchEvent) => {
+		if (!isMouseControl || !isDragging) return;
+		e.preventDefault(); // Prevent scrolling while dragging
 		const rect = section.getBoundingClientRect();
-		mouseX = e.clientX - rect.left - circle.clientWidth / 2;
-		mouseY = e.clientY - rect.top - circle.clientHeight / 2;
-		isMouseControl = !isMouseControl;
+		const touch = e.touches[0];
+		mouseX = touch.clientX - rect.left - circle.clientWidth / 2;
+		mouseY = touch.clientY - rect.top - circle.clientHeight / 2;
+	};
+
+	const startDrag = (e: MouseEvent | TouchEvent) => {
+		isDragging = true;
+		if (e instanceof TouchEvent) {
+			const touch = e.touches[0];
+			const rect = section.getBoundingClientRect();
+			mouseX = touch.clientX - rect.left - circle.clientWidth / 2;
+			mouseY = touch.clientY - rect.top - circle.clientHeight / 2;
+		}
+		isMouseControl = true;
 		isFirstTime = true;
 	};
 
+	const endDrag = () => {
+		isDragging = false;
+	};
+
+	const toggleControl = (e: MouseEvent) => {
+		if (e.button === 0) {
+			// Only toggle on left click
+			const rect = section.getBoundingClientRect();
+			mouseX = e.clientX - rect.left - circle.clientWidth / 2;
+			mouseY = e.clientY - rect.top - circle.clientHeight / 2;
+			isMouseControl = !isMouseControl;
+			isFirstTime = true;
+		}
+	};
+
 	const nextMoveBasedOnFormula = (time: number) => {
-		const centerX = section.clientWidth / 2;
-		const centerY = section.clientHeight / 2;
+		const centerX = viewportWidth / 2;
+		const centerY = viewportHeight / 2;
 
 		const wanderAngle = time * waveParams.wanderSpeed;
-		const x = centerX + Math.cos(wanderAngle) * waveParams.wanderRadius;
+		const x = centerX + Math.cos(wanderAngle) * responsiveWanderRadius;
 		const y =
 			centerY +
-			Math.sin(wanderAngle) * waveParams.wanderRadius +
+			Math.sin(wanderAngle) * responsiveWanderRadius +
 			waveParams.amplitude * Math.sin(time * waveParams.speed);
 
 		return {
@@ -65,15 +117,37 @@
 	};
 
 	const getTimeFromPosition = (x: number): number => {
-		const centerX = section.clientWidth / 2;
-		const cosWanderAngleX = Math.max(-1, Math.min(1, (x - centerX) / waveParams.wanderRadius));
+		const centerX = viewportWidth / 2;
+		const cosWanderAngleX = Math.max(-1, Math.min(1, (x - centerX) / responsiveWanderRadius));
 		const wanderAngleX = Math.acos(cosWanderAngleX);
 		return wanderAngleX / waveParams.wanderSpeed;
 	};
 
 	onMount(() => {
+		// Set initial positions
+		currentX = viewportWidth / 2;
+		currentY = viewportHeight / 2;
+
+		// Set initial target position
+		const randomPos = getRandomPosition();
+		targetX = randomPos.x;
+		targetY = randomPos.y;
+
 		const animate = () => {
 			time += 2 * movementSpeed;
+
+			// Check for collision with target
+			const dx = currentX - targetX;
+			const dy = currentY - targetY;
+			const distance = Math.sqrt(dx * dx + dy * dy);
+
+			if (distance < hitThreshold) {
+				score++;
+				const newPos = getRandomPosition();
+				targetX = Math.max(newPos.x, 0);
+				targetY = Math.max(newPos.y, 0);
+			}
+
 			if (!isMouseControl) {
 				const approximateTime = getTimeFromPosition(mouseX);
 				if (isFirstTime && !isNaN(approximateTime)) {
@@ -92,7 +166,6 @@
 				currentX += dx * transitionSpeed;
 				currentY += dy * transitionSpeed;
 			}
-
 			circle.style.transform = `translate(${currentX}px, ${currentY}px)`;
 			followers.forEach((follower, index, array) => {
 				if (!follower.element) {
@@ -110,6 +183,10 @@
 				follower.y = y;
 				follower.element.style.transform = `translate(${follower.x}px, ${follower.y}px)`;
 			});
+
+			// Update target position
+			target.style.transform = `translate(${targetX}px, ${targetY}px)`;
+
 			requestAnimationFrame(animate);
 		};
 		animate();
@@ -129,8 +206,9 @@
 	<title>Procedural Animation</title>
 </svelte:head>
 
-<header class="container mx-auto my-20">
+<header class="container mx-auto my-10 md:my-20">
 	<h1 class="text-center text-4xl font-bold">Procedural Animation</h1>
+	<p class="mt-4 text-center text-2xl">Score: {score}</p>
 	<div class="mt-4 flex flex-col items-center gap-4">
 		<div class="flex items-center gap-2">
 			<button
@@ -184,20 +262,28 @@
 	</div>
 </header>
 
-<main class="container mx-auto">
+<main class="container mx-auto mb-20">
+	<p class="mb-5 text-center text-sm">Drag to move the snake</p>
 	<section
 		role="presentation"
 		on:mousemove={handleOnMouseMove}
+		on:mousedown={startDrag}
+		on:mouseup={endDrag}
+		on:mouseleave={endDrag}
+		on:touchstart={startDrag}
+		on:touchmove={handleTouchMove}
+		on:touchend={endDrag}
 		on:click={toggleControl}
 		bind:this={section}
 		class="relative h-full min-h-[80vh] w-full overflow-hidden border bg-slate-800"
-		title="Click to toggle between automatic and cursor following. Right click to pause/resume."
+		title="Click to toggle between automatic and cursor following. Drag to move on mobile."
 	>
 		<div
 			bind:this={circle}
 			class="bg-primary absolute h-8 w-8 rounded-full"
 			style="transform-origin: center center;transform: translate(250px, 250px);"
 		></div>
+		<div bind:this={target} class=" absolute h-5 w-5 rounded-full bg-yellow-300"></div>
 		{#each followers as follower, i}
 			<div
 				id={`follower-${i}`}
