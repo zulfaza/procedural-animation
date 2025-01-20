@@ -22,14 +22,6 @@
 
 	let isDragging = false;
 
-	const waveParams = {
-		amplitude: 50,
-		wavelength: 200,
-		speed: 0.05,
-		wanderRadius: 500,
-		wanderSpeed: 0.01
-	};
-
 	let movementSpeed = 1; // Add speed multiplier
 	let transitionSpeed = 0.1; // Controls how fast the circle moves to cursor
 	let currentX = 0; // Will be set in onMount
@@ -39,6 +31,13 @@
 	$: viewportWidth = section?.clientWidth ?? 0;
 	$: viewportHeight = section?.clientHeight ?? 0;
 	$: responsiveWanderRadius = Math.min(viewportWidth, viewportHeight) * 0.4; // 30% of the smallest dimension
+
+	$: waveParams = {
+		amplitude: Math.min(viewportHeight, viewportWidth) * 0.05, // 5% of smallest viewport dimension
+		wavelength: Math.min(viewportHeight, viewportWidth) * 0.2, // 20% of smallest viewport dimension
+		speed: 0.05,
+		wanderSpeed: 0.01
+	};
 
 	let score = 0; // Add score counter
 	const hitThreshold = 20; // Distance threshold for hitting target
